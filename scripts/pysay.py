@@ -25,6 +25,8 @@ import sys
 import glob
 import argparse
 import textwrap
+from typing import Any, NamedTuple
+
 
 # Global declarations
 
@@ -66,6 +68,22 @@ else:
         ])
 
 
+class Appearance(NamedTuple):
+    borg: bool = False
+    dead: bool = False
+    greedy: bool = False
+    paranoid: bool = False
+    stoned: bool = False
+    tired: bool = False
+    thinking: bool = False
+    wired: bool = False
+    young: bool = False
+    expand: bool = False
+    columns: bool = 40 
+    eyes: str = "oo"
+    tongue: str = "  "
+
+
 # Argparse actions
 
 class ListCows(argparse.Action):
@@ -98,7 +116,7 @@ def unicode(string):
     return __builtins__.unicode(string, "utf-8")
 
 
-def construct_balloon(message):
+def construct_balloon(message, thinking):
     """Draw the balloon."""
     balloon_lines = []
     message = message.splitlines()
@@ -108,7 +126,7 @@ def construct_balloon(message):
     maxlen = len(max(message, key=len))
     maxlen_borders = maxlen + 2
     formatstr = "{{0}} {{1:<{maxlen}}} {{2}}".format(maxlen=maxlen)
-    if "think" in progname:
+    if thinking:
         tail = "o"
         # borders = [up-left, up-right, down-left, down-right, left, right]
         borders = ["(", ")", "(", ")", "(", ")"]
@@ -223,6 +241,26 @@ def fill(text, col):
                                                 expand_tabs=False,
                                                 break_on_hyphens=False))
     return "\n\n".join(wrapped_paragraphs)
+
+
+def cowsay(cow="default", message="", a=Appearance()):
+    message = message.replace("\x08", "")
+
+    if not a.expand:
+        message = fill(message, a.columns)
+    else:
+        # Vulnerable to buggy fortunes or bad formatted text.
+        message = message.expandtabs()
+
+    balloon_lines, tail = construct_balloon(message, a.thinking)
+    cow_path = "/usr/share/cows/{0}.cow".format(cow)
+    eyes, tongue = construct_face(a)
+    the_cow = cow_parse(cow_path, tail, eyes, tongue)
+    cowsays = []
+    for line in balloon_lines:
+        cowsays.append(line)
+    cowsays.append(the_cow)
+    return cowsays
 
 
 # Main
