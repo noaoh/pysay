@@ -25,11 +25,11 @@ import sys
 import glob
 import argparse
 import textwrap
-from typing import Any, NamedTuple
-
+import redis
+from typing import NamedTuple
 
 # Global declarations
-
+redis_conn = redis.StrictRedis()
 __version__ = "2.0.0"
 
 progname = os.path.basename(sys.argv[0])
@@ -43,14 +43,14 @@ else:
             ".\\cows"
         ])
     elif sys.platform == "darwin":
-        #for mac osx
+        # for mac osx
         cowpath = os.pathsep.join([
             os.path.join(sys.prefix, "/usr/local/share/cows/"),
             # The following is necessary to find cows if this was installed
             # to an unexpected path, such as with `pip install --user`.
             os.path.join(os.path.dirname(os.path.dirname(__file__)),
                          "share/cows"),
-        ])  
+        ])
     else:
         cowpath = os.pathsep.join([
             os.path.join(sys.prefix, "share/cows"),
@@ -79,7 +79,7 @@ class Appearance(NamedTuple):
     wired: bool = False
     young: bool = False
     expand: bool = False
-    columns: bool = 40 
+    columns: int = 40
     eyes: str = "oo"
     tongue: str = "  "
 
@@ -87,7 +87,6 @@ class Appearance(NamedTuple):
 # Argparse actions
 
 class ListCows(argparse.Action):
-
     """Print the list of available cows."""
 
     def __call__(self, parser, namespace, values, option_string=None):
@@ -136,7 +135,7 @@ def construct_balloon(message, thinking):
             borders = ["<", ">"]
         else:
             borders = ["/", "\\", "\\", "/", "|", "|"]
-    balloon_lines.append(" " + "_"*maxlen_borders)
+    balloon_lines.append(" " + "_" * maxlen_borders)
     balloon_lines.append(formatstr.format(borders[0], message[0], borders[1]))
     if len(message) > 1:
         for line in message[1:-1]:
@@ -146,7 +145,7 @@ def construct_balloon(message, thinking):
         balloon_lines.append(formatstr.format(borders[2],
                                               message[-1],
                                               borders[3]))
-    balloon_lines.append(" " + "-"*maxlen_borders)
+    balloon_lines.append(" " + "-" * maxlen_borders)
     return balloon_lines, tail
 
 
@@ -177,21 +176,18 @@ def construct_face(args):
     return eyes, tongue
 
 
-def cow_parse(cow_path, tail, eyes, tongue):
-    """Read the .cow file."""
-    perl_cow = [
-        unicode(
-            line
-            .replace("$thoughts", tail)
-            .replace("${thoughts}", tail)
-            .replace("$eyes", eyes)
-            .replace("${eyes}", eyes)
-            .replace("$tongue", tongue)
-            .replace("${tongue}", tongue)
-            .replace("\\\\", "\\")
-            .replace("\\$", "$").replace("\\@", "@")
-        )
-        for line in open(cow_path)
+def cow_read(cow_blob, tail, eyes, tongue):
+    """Convert a stored cow into what cow was asked for"""
+    perl_cow = [line.decode("utf-8")
+                .replace("$thoughts", tail)
+                .replace("${thoughts}", tail)
+                .replace("$eyes", eyes)
+                .replace("${eyes}", eyes)
+                .replace("$tongue", tongue)
+                .replace("${tongue}", tongue)
+                .replace("\\\\", "\\")
+                .replace("\\$", "$").replace("\\@", "@")
+        for line in cow_blob
     ]
     the_cow = ""
     cow_line = False
@@ -201,6 +197,17 @@ def cow_parse(cow_path, tail, eyes, tongue):
         if "the_cow" in line:
             cow_line = True
     return the_cow.rstrip()
+
+
+def cow_parse_file(cow_path, tail, eyes, tongue):
+    """Read the .cow file."""
+    with open(cow_path) as f:
+        return cow_read(f.readlines(), tail, eyes, tongue)
+
+
+def cow_parse_redis(cow_key, tail, eyes, tongue):
+    """Read the cow from a redis key"""
+    return cow_read(redis_conn.lrange(cow_key, 0, -1), tail, eyes, tongue)
 
 
 def get_cow_path(cow):
@@ -235,7 +242,7 @@ def fill(text, col):
     # (see sub fill in the Text::Wrap/Wrap.pm source in the Perl library)
     paragraphs = re.compile("\n\\s+").split(text.strip())
     for p in paragraphs:
-        p = " ".join(p.split())   # take care of all other whitespaces
+        p = " ".join(p.split())  # take care of all other whitespaces
         wrapped_paragraphs.append(textwrap.fill(p,
                                                 width=col,
                                                 expand_tabs=False,
@@ -243,7 +250,7 @@ def fill(text, col):
     return "\n\n".join(wrapped_paragraphs)
 
 
-def cowsay(cow="default", message="", a=Appearance()):
+def cowsay(cow="default", message="", a=Appearance(), redis=True):
     message = message.replace("\x08", "")
 
     if not a.expand:
@@ -253,9 +260,14 @@ def cowsay(cow="default", message="", a=Appearance()):
         message = message.expandtabs()
 
     balloon_lines, tail = construct_balloon(message, a.thinking)
-    cow_path = "/usr/share/cows/{0}.cow".format(cow)
     eyes, tongue = construct_face(a)
-    the_cow = cow_parse(cow_path, tail, eyes, tongue)
+    if redis:
+        the_cow = cow_parse_redis(cow, tail, eyes, tongue)
+
+    else:
+        cow_path = "/usr/share/cows/{0}.cow".format(cow)
+        the_cow = cow_parse_file(cow_path, tail, eyes, tongue)
+
     cowsays = []
     for line in balloon_lines:
         cowsays.append(line)
@@ -266,7 +278,6 @@ def cowsay(cow="default", message="", a=Appearance()):
 # Main
 
 class PysayParser(argparse.ArgumentParser):
-
     """Parse the arguments passed to the script."""
 
     def __init__(self):
@@ -370,11 +381,12 @@ def main(argv=None):
     balloon_lines, tail = construct_balloon(message)
     eyes, tongue = construct_face(args)
     cow_path = get_cow_path(args.f)
-    the_cow = cow_parse(cow_path, tail, eyes, tongue)
+    the_cow = cow_parse_file(cow_path, tail, eyes, tongue)
     for line in balloon_lines:
         print(line)
     print(the_cow)
     return 0
+
 
 # "the end is the beginning is the end"
 if __name__ == "__main__":
