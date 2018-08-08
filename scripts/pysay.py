@@ -29,7 +29,7 @@ import json
 from typing import NamedTuple
 
 # Global declarations
-with open("../cows.json") as f:
+with open(os.path.join(os.path.dirname(__file__), "../cows.json")) as f:
     cows_db = json.load(f)
 
 __version__ = "2.0.0"
