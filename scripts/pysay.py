@@ -25,11 +25,13 @@ import sys
 import glob
 import argparse
 import textwrap
-import redis
+import json
 from typing import NamedTuple
 
 # Global declarations
-redis_conn = redis.StrictRedis()
+with open("../cows.json") as f:
+    cows_db = json.load(f)
+
 __version__ = "2.0.0"
 
 progname = os.path.basename(sys.argv[0])
@@ -178,7 +180,7 @@ def construct_face(args):
 
 def cow_read(cow_blob, tail, eyes, tongue):
     """Convert a stored cow into what cow was asked for"""
-    perl_cow = [line.decode("utf-8")
+    perl_cow = [unicode(line)
                 .replace("$thoughts", tail)
                 .replace("${thoughts}", tail)
                 .replace("$eyes", eyes)
@@ -205,9 +207,9 @@ def cow_parse_file(cow_path, tail, eyes, tongue):
         return cow_read(f.readlines(), tail, eyes, tongue)
 
 
-def cow_parse_redis(cow_key, tail, eyes, tongue):
-    """Read the cow from a redis key"""
-    return cow_read(redis_conn.lrange(cow_key, 0, -1), tail, eyes, tongue)
+def cow_parse_db(cow_key, tail, eyes, tongue):
+    """Read the cow from a python dictionary"""
+    return cow_read(cows_db[cow_key], tail, eyes, tongue)
 
 
 def get_cow_path(cow):
@@ -250,7 +252,7 @@ def fill(text, col):
     return "\n\n".join(wrapped_paragraphs)
 
 
-def cowsay(cow="default", message="", a=Appearance(), redis=True):
+def cowsay(cow="default", message="", a=Appearance(), db=True):
     message = message.replace("\x08", "")
 
     if not a.expand:
@@ -261,8 +263,8 @@ def cowsay(cow="default", message="", a=Appearance(), redis=True):
 
     balloon_lines, tail = construct_balloon(message, a.thinking)
     eyes, tongue = construct_face(a)
-    if redis:
-        the_cow = cow_parse_redis(cow, tail, eyes, tongue)
+    if db:
+        the_cow = cow_parse_db(cow, tail, eyes, tongue)
 
     else:
         cow_path = "/usr/share/cows/{0}.cow".format(cow)
